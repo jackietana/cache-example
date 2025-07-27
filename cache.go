@@ -1,6 +1,9 @@
 package cache
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 type Value struct {
 	value      any
@@ -9,33 +12,43 @@ type Value struct {
 }
 
 type Cache struct {
-	data map[string]Value
+	data  map[string]Value
+	mutex *sync.RWMutex
 }
 
 func New() *Cache {
 	return &Cache{
-		data: make(map[string]Value),
+		data:  make(map[string]Value),
+		mutex: new(sync.RWMutex),
 	}
 }
 
 func (c *Cache) Set(key string, value interface{}, ttl time.Duration) {
+	c.mutex.Lock()
 	c.data[key] = Value{
 		value, ttl, time.Now().Add(ttl),
 	}
+	c.mutex.Unlock()
 }
 
 func (c *Cache) Get(key string) interface{} {
-	curr := time.Now()
-	expr := c.data[key].expiration
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
 
-	if curr.Before(expr) || curr.Equal(expr) {
-		return c.data[key].value
-	} else {
-		c.Delete(key)
+	value, exists := c.data[key]
+	if !exists {
 		return nil
 	}
+
+	if time.Now().Before(value.expiration) || time.Now().Equal(value.expiration) {
+		return value.value
+	}
+
+	return nil
 }
 
 func (c *Cache) Delete(key string) {
+	c.mutex.Lock()
 	delete(c.data, key)
+	c.mutex.Unlock()
 }
